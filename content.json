@@ -1,0 +1,112 @@
+{
+  "hero": {
+    "eyebrow": "Aspiring Data Analyst",
+    "title": "Adnan Bin Abdul Khaleque",
+    "tagline": "Making sense of data, driving better decisions.",
+    "image": null
+  },
+  "about": {
+    "title": "From thesis research to data-driven decisions.",
+    "photo": null,
+    "steps": [
+      {
+        "title": "Thesis research",
+        "text": "My path into data started during my undergraduate thesis, where I worked on time-series forecasting for Bangladesh's energy transition — building models to understand how the country's power landscape is likely to shift in the years ahead."
+      },
+      {
+        "title": "IEEE publication",
+        "text": "That research was later published as a conference paper with IEEE, which became the real turning point for me — the moment data analysis stopped being coursework and became the direction I wanted to build a career around."
+      },
+      {
+        "title": "Self-driven mastery",
+        "text": "Since then, I've been learning deliberately and by doing: cleaning and structuring data in Excel with formulas and Power Query, visualizing it in Power BI and Tableau, and querying and analyzing it with SQL and Python — one personal project at a time."
+      }
+    ]
+  },
+  "projects": [
+    {
+      "id": "p1",
+      "title": "Energy Demand Forecasting",
+      "desc": "A time-series model exploring national energy demand trends, extending the forecasting approach from my published thesis work into an interactive analysis.",
+      "tags": [
+        "Python",
+        "Pandas",
+        "Forecasting"
+      ],
+      "link": "#",
+      "image": null,
+      "thumbStyle": "bars"
+    },
+    {
+      "id": "p2",
+      "title": "Retail Sales Dashboard",
+      "desc": "An interactive Power BI dashboard breaking down regional retail performance — revenue trends, category mix, and store-level KPIs for faster decisions.",
+      "tags": [
+        "Power BI",
+        "DAX",
+        "SQL"
+      ],
+      "link": "#",
+      "image": null,
+      "thumbStyle": "line"
+    },
+    {
+      "id": "p3",
+      "title": "Customer Churn Analysis",
+      "desc": "An exploratory analysis identifying key drivers behind customer churn, using SQL for data prep and Python for statistical testing and visualization.",
+      "tags": [
+        "SQL",
+        "Python",
+        "EDA"
+      ],
+      "link": "#",
+      "image": null,
+      "thumbStyle": "donut"
+    }
+  ],
+  "skills": {
+    "dataAnalysis": [
+      "Excel",
+      "SQL",
+      "Python",
+      "Pandas"
+    ],
+    "visualization": [
+      "Power BI",
+      "Tableau",
+      "Matplotlib"
+    ],
+    "database": [
+      "MySQL",
+      "Power Query",
+      "DAX"
+    ],
+    "core": [
+      "Data Cleaning",
+      "EDA",
+      "Descriptive Stats",
+      "Dashboard Design"
+    ]
+  },
+  "education": {
+    "degree": "BSc in Electrical & Electronic Engineering",
+    "university": "[Your University Name]",
+    "year": "[20XX]",
+    "note": "CGPA available on request — add here if you'd like it displayed."
+  },
+  "certifications": [],
+  "resume": {
+    "link": "#",
+    "fileName": null,
+    "fileData": null
+  },
+  "contact": {
+    "email": "your@email.com",
+    "whatsapp": "8800000000",
+    "linkedin": "https://linkedin.com/in/yourprofile",
+    "github": "https://github.com/yourprofile"
+  },
+  "footer": {
+    "role": "Data Analyst · EEE Graduate"
+  }
+}
