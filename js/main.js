@@ -1,285 +1,803 @@
 /* =========================================================
-   PUBLIC SITE RENDERER
-   Reads content + theme from shared/store.js (localStorage)
-   and paints the page. Also listens for changes made in the
-   Admin Panel (in another tab) and updates live, instantly.
+   ADMIN PANEL LOGIC
+   Handles: login/session, all section editors, image uploads
+   (stored as base64 data URLs), projects/certifications CRUD,
+   theme switching, account settings, backup/restore, reset.
+   Every save writes straight to the shared Store, which the
+   public site reads from (live, via localStorage + the
+   'storage' event when the site is open in another tab).
    ========================================================= */
 
-// ---------- Default visual placeholders (used when no image uploaded) ----------
+const SESSION_KEY = 'abk_admin_session_v1';
 
-function dashboardPlaceholderSVG() {
-  return `
-  <svg viewBox="0 0 560 380" class="dash-svg" role="img" aria-label="Placeholder dashboard preview">
-    <g class="dash-kpi"><rect x="16" y="16" width="120" height="64" rx="10"/><rect x="28" y="30" width="46" height="8" rx="4" class="mut"/><rect x="28" y="48" width="70" height="14" rx="4" class="acc"/></g>
-    <g class="dash-kpi"><rect x="148" y="16" width="120" height="64" rx="10"/><rect x="160" y="30" width="46" height="8" rx="4" class="mut"/><rect x="160" y="48" width="58" height="14" rx="4" class="acc2"/></g>
-    <g class="dash-kpi"><rect x="280" y="16" width="120" height="64" rx="10"/><rect x="292" y="30" width="46" height="8" rx="4" class="mut"/><rect x="292" y="48" width="64" height="14" rx="4" class="acc"/></g>
-    <g class="dash-kpi"><rect x="412" y="16" width="132" height="64" rx="10"/><rect x="424" y="30" width="46" height="8" rx="4" class="mut"/><rect x="424" y="48" width="50" height="14" rx="4" class="acc2"/></g>
-    <rect x="16" y="100" width="330" height="180" rx="10" class="panel"/>
-    <g class="bars">
-      <rect x="40" y="220" width="24" height="40"/><rect x="76" y="190" width="24" height="70"/>
-      <rect x="112" y="160" width="24" height="100" class="hi"/><rect x="148" y="205" width="24" height="55"/>
-      <rect x="184" y="175" width="24" height="85"/><rect x="220" y="150" width="24" height="110" class="hi"/>
-      <rect x="256" y="200" width="24" height="60"/><rect x="292" y="230" width="24" height="30"/>
-    </g>
-    <line x1="40" y1="262" x2="316" y2="262" class="axis"/>
-    <rect x="362" y="100" width="182" height="180" rx="10" class="panel"/>
-    <polyline points="378,240 400,220 422,232 444,190 466,205 488,160 510,175 528,140" class="line"/>
-    <circle cx="528" cy="140" r="4" class="dotend"/>
-    <rect x="16" y="296" width="528" height="68" rx="10" class="panel"/>
-    <rect x="32" y="312" width="90" height="8" rx="4" class="mut"/>
-    <rect x="32" y="330" width="140" height="8" rx="4" class="mut2"/>
-    <rect x="32" y="346" width="70" height="8" rx="4" class="mut2"/>
-    <rect x="420" y="318" width="110" height="28" rx="6" class="acc-soft"/>
-  </svg>
-  <span class="dash-caption">Preview placeholder — swap via Admin Panel</span>`;
-}
+// ---------------------------------------------------------
+// SAFE STORAGE ACCESS
+// Some browsers (notably Safari, and Chrome in some modes)
+// block localStorage/sessionStorage when a page is opened
+// directly as a file (file:///...) instead of served over
+// http(s). Without this, every click would just silently do
+// nothing. These wrappers catch that and surface a clear
+// message instead of failing invisibly.
+// ---------------------------------------------------------
 
-function photoPlaceholderSVG() {
-  return `
-  <svg viewBox="0 0 320 380" class="photo-svg" role="img" aria-label="Placeholder profile photo">
-    <rect x="0" y="0" width="320" height="380" fill="url(#photoGrad)"/>
-    <defs><linearGradient id="photoGrad" x1="0" y1="0" x2="320" y2="380" gradientUnits="userSpaceOnUse">
-      <stop offset="0" class="pg1"/><stop offset="1" class="pg2"/>
-    </linearGradient></defs>
-    <circle cx="160" cy="150" r="56" class="ph-fill"/>
-    <path d="M60 340 C60 260 260 260 260 340 L260 380 L60 380 Z" class="ph-fill"/>
-  </svg>
-  <span class="photo-caption">Photo placeholder — add yours in Admin Panel</span>`;
-}
+let memorySessionFallback = false; // used only if sessionStorage itself is blocked
 
-function projectThumbSVG(style) {
-  if (style === 'line') {
-    return `<svg viewBox="0 0 400 240" class="thumb-svg" aria-hidden="true"><rect width="400" height="240" class="thumb-bg"/>
-      <polyline points="30,180 90,140 150,160 210,90 270,110 330,50" class="thumb-line"/>
-      <circle cx="30" cy="180" r="4" class="thumb-dotpt"/><circle cx="90" cy="140" r="4" class="thumb-dotpt"/>
-      <circle cx="150" cy="160" r="4" class="thumb-dotpt"/><circle cx="210" cy="90" r="4" class="thumb-dotpt"/>
-      <circle cx="270" cy="110" r="4" class="thumb-dotpt"/><circle cx="330" cy="50" r="4" class="thumb-dotpt"/></svg>`;
-  }
-  if (style === 'donut') {
-    return `<svg viewBox="0 0 400 240" class="thumb-svg" aria-hidden="true"><rect width="400" height="240" class="thumb-bg"/>
-      <circle cx="140" cy="120" r="70" class="thumb-donut-bg"/>
-      <circle cx="140" cy="120" r="70" class="thumb-donut-fg" stroke-dasharray="260 440" transform="rotate(-90 140 120)"/>
-      <rect x="250" y="80" width="110" height="10" rx="5" class="tbline mut"/><rect x="250" y="105" width="80" height="10" rx="5" class="tbline mut2"/>
-      <rect x="250" y="130" width="95" height="10" rx="5" class="tbline mut"/><rect x="250" y="155" width="60" height="10" rx="5" class="tbline mut2"/></svg>`;
-  }
-  // default: bars
-  return `<svg viewBox="0 0 400 240" class="thumb-svg" aria-hidden="true"><rect width="400" height="240" class="thumb-bg"/>
-    <rect x="30" y="150" width="30" height="60" class="tb1"/><rect x="80" y="110" width="30" height="100" class="tb2"/>
-    <rect x="130" y="70" width="30" height="140" class="tb1"/><rect x="180" y="130" width="30" height="80" class="tb2"/>
-    <rect x="230" y="90" width="30" height="120" class="tb1"/><rect x="280" y="160" width="30" height="50" class="tb2"/>
-    <line x1="20" y1="210" x2="330" y2="210" class="thumb-axis"/></svg>`;
-}
-
-function escapeHtml(str) {
-  return String(str == null ? '' : str)
-    .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
-}
-
-// ---------- Main render ----------
-
-function renderContent(content) {
-  content = content || Store.getContent();
-
-  // Hero
-  document.getElementById('heroEyebrow').textContent = content.hero.eyebrow;
-  document.getElementById('heroTitle').innerHTML = escapeHtml(content.hero.title).replace(/\n/g, '<br>');
-  document.getElementById('heroTagline').textContent = content.hero.tagline;
-
-  const heroSlot = document.getElementById('heroImageSlot');
-  if (content.hero.image) {
-    heroSlot.innerHTML = `<img src="${content.hero.image}" alt="Project dashboard preview" style="width:100%;height:auto;border-radius:12px;display:block;">`;
-  } else {
-    heroSlot.innerHTML = dashboardPlaceholderSVG();
-  }
-
-  // About
-  document.getElementById('aboutTitle').innerHTML = escapeHtml(content.about.title).replace(/\n/g, '<br>');
-  const photoSlot = document.getElementById('aboutPhotoSlot');
-  if (content.about.photo) {
-    photoSlot.innerHTML = `<img src="${content.about.photo}" alt="Profile photo" style="width:100%;height:auto;display:block;">`;
-  } else {
-    photoSlot.innerHTML = photoPlaceholderSVG();
-  }
-
-  const storyList = document.getElementById('storyList');
-  storyList.innerHTML = content.about.steps.map(step => `
-    <div class="story-item">
-      <span class="story-dot"></span>
-      <div><h3>${escapeHtml(step.title)}</h3><p>${escapeHtml(step.text)}</p></div>
-    </div>`).join('');
-
-  // Projects
-  const grid = document.getElementById('projectGrid');
-  grid.innerHTML = content.projects.map(p => `
-    <article class="project-card reveal">
-      <div class="project-thumb">
-        ${p.image ? `<img src="${p.image}" alt="${escapeHtml(p.title)} thumbnail" style="width:100%;height:auto;display:block;">` : projectThumbSVG(p.thumbStyle)}
-      </div>
-      <div class="project-body">
-        <h3>${escapeHtml(p.title)}</h3>
-        <p>${escapeHtml(p.desc)}</p>
-        <div class="tag-row">${(p.tags || []).map(t => `<span class="tag">${escapeHtml(t)}</span>`).join('')}</div>
-        <a href="${escapeHtml(p.link || '#')}" class="project-link" target="_blank" rel="noopener">
-          View Full Project
-          <svg width="14" height="14" viewBox="0 0 14 14"><path d="M3 11L11 3M11 3H5M11 3V9" stroke="currentColor" stroke-width="1.4" fill="none" stroke-linecap="round" stroke-linejoin="round"/></svg>
-        </a>
-      </div>
-    </article>`).join('');
-
-  // Skills
-  renderTags('tagsDataAnalysis', content.skills.dataAnalysis);
-  renderTags('tagsVisualization', content.skills.visualization);
-  renderTags('tagsDatabase', content.skills.database);
-  renderTags('tagsCore', content.skills.core);
-
-  // Education
-  document.getElementById('eduDegree').textContent = content.education.degree;
-  document.getElementById('eduMeta').innerHTML = `${escapeHtml(content.education.university)} &nbsp;·&nbsp; Passing Year: ${escapeHtml(content.education.year)}`;
-  document.getElementById('eduNote').textContent = content.education.note;
-
-  // Certifications
-  const certList = document.getElementById('certList');
-  if (!content.certifications || content.certifications.length === 0) {
-    certList.innerHTML = `<div class="cert-empty"><p>Certificates will appear here soon — add them anytime through the Admin Panel.</p></div>`;
-  } else {
-    certList.innerHTML = `<div class="cert-list">${content.certifications.map(c => `
-      <div class="cert-item">
-        <div class="cert-item-title">${escapeHtml(c.title)}</div>
-        <div class="cert-item-meta">${escapeHtml(c.issuer || '')}${c.issuer && c.year ? ' · ' : ''}${escapeHtml(c.year || '')}</div>
-        ${c.note ? `<div class="cert-item-note">${escapeHtml(c.note)}</div>` : ''}
-      </div>`).join('')}</div>`;
-  }
-
-  // Resume
-  const resumeBtn = document.getElementById('resumeBtn');
-  if (content.resume.fileData) {
-    resumeBtn.href = content.resume.fileData;
-    resumeBtn.setAttribute('download', content.resume.fileName || 'resume.pdf');
-  } else {
-    resumeBtn.href = content.resume.link || '#';
-    resumeBtn.removeAttribute('download');
-  }
-
-  // Contact
-  document.getElementById('contactEmailValue').textContent = content.contact.email;
-  document.getElementById('contactEmailCard').href = `mailto:${content.contact.email}`;
-
-  document.getElementById('contactWhatsappValue').textContent = formatWhatsapp(content.contact.whatsapp);
-  document.getElementById('contactWhatsappCard').href = `https://wa.me/${content.contact.whatsapp.replace(/[^0-9]/g, '')}`;
-
-  document.getElementById('contactLinkedinValue').textContent = shortUrl(content.contact.linkedin);
-  document.getElementById('contactLinkedinCard').href = content.contact.linkedin;
-
-  document.getElementById('contactGithubValue').textContent = shortUrl(content.contact.github);
-  document.getElementById('contactGithubCard').href = content.contact.github;
-
-  // Footer
-  document.getElementById('footerRole').textContent = content.footer.role;
-  document.getElementById('footerLinkedin').href = content.contact.linkedin;
-  document.getElementById('footerGithub').href = content.contact.github;
-  document.getElementById('footerEmail').href = `mailto:${content.contact.email}`;
-
-  initReveal();
-}
-
-function renderTags(id, tags) {
-  const el = document.getElementById(id);
-  el.innerHTML = (tags || []).map(t => `<span class="tag mono">${escapeHtml(t)}</span>`).join('');
-}
-
-function formatWhatsapp(num) {
-  const digits = String(num || '').replace(/[^0-9]/g, '');
-  return digits ? `+${digits}` : '';
-}
-
-function shortUrl(url) {
+function storageIsBlocked() {
   try {
-    const u = new URL(url);
-    return u.pathname && u.pathname !== '/' ? u.pathname.replace(/\/$/, '') : u.hostname;
+    const testKey = '__abk_test__';
+    localStorage.setItem(testKey, '1');
+    localStorage.removeItem(testKey);
+    return false;
   } catch (e) {
-    return url;
+    return true;
   }
 }
 
-// ---------- Mobile nav toggle ----------
-const navToggle = document.getElementById('navToggle');
-const navLinks = document.getElementById('navLinks');
-
-if (navToggle && navLinks) {
-  navToggle.addEventListener('click', () => {
-    const isOpen = navLinks.classList.toggle('open');
-    navToggle.classList.toggle('open', isOpen);
-    navToggle.setAttribute('aria-expanded', String(isOpen));
-  });
-
-  navLinks.querySelectorAll('a').forEach(link => {
-    link.addEventListener('click', () => {
-      navLinks.classList.remove('open');
-      navToggle.classList.remove('open');
-      navToggle.setAttribute('aria-expanded', 'false');
-    });
-  });
+function setSession(loggedIn) {
+  try {
+    if (loggedIn) sessionStorage.setItem(SESSION_KEY, '1');
+    else sessionStorage.removeItem(SESSION_KEY);
+  } catch (e) {
+    memorySessionFallback = loggedIn; // at least keep the panel open for this page load
+  }
 }
 
-// ---------- Scroll reveal (re-run after dynamic content is injected) ----------
-let revealObserver = null;
+function getSession() {
+  try {
+    return sessionStorage.getItem(SESSION_KEY) === '1';
+  } catch (e) {
+    return memorySessionFallback;
+  }
+}
 
-function initReveal() {
-  const revealEls = document.querySelectorAll('.reveal:not(.in-view)');
-  if (!('IntersectionObserver' in window)) {
-    document.querySelectorAll('.reveal').forEach(el => el.classList.add('in-view'));
+function showStorageBlockedNotice(context) {
+  const el = document.getElementById(context === 'login' ? 'loginError' : 'accountMsg');
+  const message = "Your browser is blocking local storage on this page — this happens when the file is opened directly (address bar starts with file://) instead of through a web server. Nothing you do here will save. Fix: either open this folder through a local server (e.g. run 'python -m http.server' in the project folder and visit http://localhost:8000/admin/), or upload the files to your real hosting and use it there — this issue does not happen on normal hosting.";
+  if (el) {
+    el.textContent = message;
+    el.hidden = false;
+    el.className = context === 'login' ? 'login-error' : 'form-msg error';
+  } else {
+    alert(message);
+  }
+}
+
+let content = null;          // working copy of site content
+let editingProjectId = null; // null = "add new"
+let editingCertId = null;
+
+// temp holders for images picked but not yet saved
+let pendingHeroImage = undefined;   // undefined = unchanged, null = removed, string = new dataURL
+let pendingAboutPhoto = undefined;
+let pendingProjectImage = undefined;
+let pendingResumeFile = undefined;  // {fileName, fileData} or null or undefined
+
+// ---------------------------------------------------------
+// AUTH
+// ---------------------------------------------------------
+
+function isLoggedIn() {
+  return getSession();
+}
+
+function showLogin() {
+  document.getElementById('loginScreen').hidden = false;
+  document.getElementById('dashboard').hidden = true;
+}
+
+function showDashboard() {
+  document.getElementById('loginScreen').hidden = true;
+  document.getElementById('dashboard').hidden = false;
+  initDashboard();
+}
+
+document.getElementById('loginForm').addEventListener('submit', (e) => {
+  e.preventDefault();
+  const errEl = document.getElementById('loginError');
+  errEl.className = 'login-error';
+
+  if (storageIsBlocked()) {
+    showStorageBlockedNotice('login');
     return;
   }
-  if (!revealObserver) {
-    revealObserver = new IntersectionObserver((entries) => {
-      entries.forEach(entry => {
-        if (entry.isIntersecting) {
-          entry.target.classList.add('in-view');
-          revealObserver.unobserve(entry.target);
-        }
-      });
-    }, { threshold: 0.15, rootMargin: '0px 0px -60px 0px' });
-  }
-  revealEls.forEach(el => revealObserver.observe(el));
-}
 
-// ---------- Active nav link on scroll ----------
-function setActive() {
-  const sections = document.querySelectorAll('main section[id], #top');
-  const navAnchors = document.querySelectorAll('.nav-link');
-  let currentId = 'top';
-  const scrollPos = window.scrollY + 120;
+  try {
+    const u = document.getElementById('loginUsername').value.trim();
+    const p = document.getElementById('loginPassword').value;
+    const auth = Store.getAuth();
 
-  sections.forEach(sec => {
-    if (sec.offsetTop <= scrollPos) currentId = sec.id;
-  });
-
-  navAnchors.forEach(a => {
-    a.style.color = a.dataset.nav === currentId ? 'var(--text)' : '';
-  });
-}
-window.addEventListener('scroll', setActive, { passive: true });
-
-// ---------- Init ----------
-// On localhost (with the Admin Panel used on this same origin), this
-// renders your saved drafts from localStorage — live-editing keeps
-// working exactly as before. On the published GitHub Pages site (or
-// any browser with no local drafts), it loads content.json instead,
-// which is the file you export and commit from the Admin Panel.
-document.addEventListener('DOMContentLoaded', () => {
-  Store.applyTheme(Store.getTheme());
-  Store.loadPublicContent().then((content) => {
-    renderContent(content);
-    setActive();
-  });
-});
-
-// ---------- Live sync from the Admin Panel (other tab) ----------
-window.addEventListener('storage', (e) => {
-  if (e.key === Store.KEYS.content) {
-    renderContent();
-  }
-  if (e.key === Store.KEYS.theme) {
-    Store.applyTheme(Store.getTheme());
+    if (u === auth.username && p === auth.password) {
+      setSession(true);
+      errEl.hidden = true;
+      showDashboard();
+    } else {
+      errEl.textContent = 'Incorrect username or password.';
+      errEl.hidden = false;
+    }
+  } catch (err) {
+    console.error('Login failed unexpectedly:', err);
+    errEl.textContent = 'Something went wrong logging in (' + err.message + '). Please try reloading the page.';
+    errEl.hidden = false;
   }
 });
+
+document.getElementById('logoutBtn').addEventListener('click', () => {
+  setSession(false);
+  showLogin();
+});
+
+// ---------------------------------------------------------
+// SIDEBAR / PANEL NAVIGATION
+// ---------------------------------------------------------
+
+function goToPanel(name) {
+  document.querySelectorAll('.side-link').forEach(b => b.classList.toggle('active', b.dataset.panel === name));
+  document.querySelectorAll('.admin-panel').forEach(p => p.classList.toggle('active', p.id === 'panel-' + name));
+  try { document.querySelector('.admin-main').scrollTo({ top: 0, behavior: 'smooth' }); } catch (e) { /* older browsers */ }
+}
+
+document.getElementById('sidebarNav').addEventListener('click', (e) => {
+  const btn = e.target.closest('.side-link');
+  if (btn) goToPanel(btn.dataset.panel);
+});
+
+document.addEventListener('click', (e) => {
+  const goto = e.target.closest('[data-goto]');
+  if (goto) goToPanel(goto.dataset.goto);
+});
+
+// ---------------------------------------------------------
+// TOAST
+// ---------------------------------------------------------
+
+let toastTimer = null;
+function showToast(msg) {
+  const toast = document.getElementById('toast');
+  toast.textContent = msg;
+  toast.classList.add('show');
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => toast.classList.remove('show'), 2800);
+}
+
+// ---------------------------------------------------------
+// HELPERS
+// ---------------------------------------------------------
+
+function fileToDataURL(file, cb) {
+  const reader = new FileReader();
+  reader.onload = () => cb(reader.result);
+  reader.readAsDataURL(file);
+}
+
+function setPreview(el, dataUrl, placeholderText) {
+  el.innerHTML = dataUrl ? `<img src="${dataUrl}" alt="">` : placeholderText;
+}
+
+function csvToList(str) {
+  return str.split(',').map(s => s.trim()).filter(Boolean);
+}
+
+function persist() {
+  const ok = Store.saveContent(content);
+  if (!ok) {
+    showToast("⚠ Couldn't save — your browser is blocking local storage on this page. See the note below for how to fix this.");
+  }
+  return ok;
+}
+
+// ---------------------------------------------------------
+// INIT DASHBOARD
+// ---------------------------------------------------------
+
+function initDashboard() {
+  content = Store.getContent();
+
+  checkDefaultPasswordBanner();
+  loadHeroForm();
+  loadAboutForm();
+  renderProjectsList();
+  loadSkillsForm();
+  loadEducationForm();
+  renderCertsList();
+  loadContactForm();
+  renderThemeGrid();
+}
+
+function checkDefaultPasswordBanner() {
+  const auth = Store.getAuth();
+  const banner = document.getElementById('defaultPwBanner');
+  banner.hidden = !(auth.username === 'admin' && auth.password === 'Admin@123');
+}
+
+// ---------------------------------------------------------
+// HERO
+// ---------------------------------------------------------
+
+function loadHeroForm() {
+  document.getElementById('heroEyebrowInput').value = content.hero.eyebrow;
+  document.getElementById('heroTitleInput').value = content.hero.title;
+  document.getElementById('heroTaglineInput').value = content.hero.tagline;
+  pendingHeroImage = undefined;
+  setPreview(document.getElementById('heroImagePreview'), content.hero.image, 'No image');
+}
+
+document.getElementById('heroImageInput').addEventListener('change', (e) => {
+  const file = e.target.files[0];
+  if (!file) return;
+  fileToDataURL(file, (dataUrl) => {
+    pendingHeroImage = dataUrl;
+    setPreview(document.getElementById('heroImagePreview'), dataUrl, 'No image');
+  });
+});
+document.getElementById('heroImageRemove').addEventListener('click', () => {
+  pendingHeroImage = null;
+  setPreview(document.getElementById('heroImagePreview'), null, 'No image');
+});
+
+document.getElementById('saveHero').addEventListener('click', () => {
+  content.hero.eyebrow = document.getElementById('heroEyebrowInput').value.trim() || content.hero.eyebrow;
+  content.hero.title = document.getElementById('heroTitleInput').value.trim() || content.hero.title;
+  content.hero.tagline = document.getElementById('heroTaglineInput').value.trim();
+  if (pendingHeroImage !== undefined) content.hero.image = pendingHeroImage;
+  persist();
+  showToast('Portfolio section saved — your live site is updated.');
+});
+
+// ---------------------------------------------------------
+// ABOUT
+// ---------------------------------------------------------
+
+function loadAboutForm() {
+  document.getElementById('aboutTitleInput').value = content.about.title;
+  pendingAboutPhoto = undefined;
+  setPreview(document.getElementById('aboutPhotoPreview'), content.about.photo, 'No photo');
+
+  const wrap = document.getElementById('storyFields');
+  wrap.innerHTML = content.about.steps.map((step, i) => `
+    <div class="edit-card" style="margin-top:14px;">
+      <label class="field"><span>Step ${i + 1} title</span><input type="text" class="storyTitle" data-i="${i}" value="${escapeAttr(step.title)}"></label>
+      <label class="field"><span>Step ${i + 1} text</span><textarea class="storyText" data-i="${i}" rows="3">${escapeHtml(step.text)}</textarea></label>
+    </div>`).join('');
+}
+
+document.getElementById('aboutPhotoInput').addEventListener('change', (e) => {
+  const file = e.target.files[0];
+  if (!file) return;
+  fileToDataURL(file, (dataUrl) => {
+    pendingAboutPhoto = dataUrl;
+    setPreview(document.getElementById('aboutPhotoPreview'), dataUrl, 'No photo');
+  });
+});
+document.getElementById('aboutPhotoRemove').addEventListener('click', () => {
+  pendingAboutPhoto = null;
+  setPreview(document.getElementById('aboutPhotoPreview'), null, 'No photo');
+});
+
+document.getElementById('saveAbout').addEventListener('click', () => {
+  content.about.title = document.getElementById('aboutTitleInput').value.trim() || content.about.title;
+  if (pendingAboutPhoto !== undefined) content.about.photo = pendingAboutPhoto;
+
+  document.querySelectorAll('.storyTitle').forEach(inp => {
+    content.about.steps[+inp.dataset.i].title = inp.value.trim();
+  });
+  document.querySelectorAll('.storyText').forEach(ta => {
+    content.about.steps[+ta.dataset.i].text = ta.value.trim();
+  });
+
+  persist();
+  showToast('About section saved — your live site is updated.');
+});
+
+// ---------------------------------------------------------
+// PROJECTS
+// ---------------------------------------------------------
+
+function renderProjectsList() {
+  const list = document.getElementById('projectsList');
+  if (content.projects.length === 0) {
+    list.innerHTML = '<p class="list-empty">No projects yet — add your first one below.</p>';
+    return;
+  }
+  list.innerHTML = content.projects.map(p => `
+    <div class="list-item">
+      <div class="list-item-thumb">${p.image ? `<img src="${p.image}" alt="">` : ''}</div>
+      <div class="list-item-info">
+        <div class="list-item-title">${escapeHtml(p.title)}</div>
+        <div class="list-item-meta">${escapeHtml((p.tags || []).join(', '))}</div>
+      </div>
+      <div class="list-item-actions">
+        <button class="btn btn-ghost btn-sm" data-edit-project="${p.id}" type="button">Edit</button>
+        <button class="btn btn-outline-danger btn-sm" data-del-project="${p.id}" type="button">Delete</button>
+      </div>
+    </div>`).join('');
+}
+
+document.getElementById('projectsList').addEventListener('click', (e) => {
+  const editBtn = e.target.closest('[data-edit-project]');
+  const delBtn = e.target.closest('[data-del-project]');
+  if (editBtn) openProjectForm(editBtn.dataset.editProject);
+  if (delBtn) {
+    if (confirm('Delete this project? This cannot be undone.')) {
+      content.projects = content.projects.filter(p => p.id !== delBtn.dataset.delProject);
+      persist();
+      renderProjectsList();
+      showToast('Project deleted — your live site is updated.');
+    }
+  }
+});
+
+document.getElementById('addProjectBtn').addEventListener('click', () => openProjectForm(null));
+
+function openProjectForm(id) {
+  editingProjectId = id;
+  pendingProjectImage = undefined;
+  const form = document.getElementById('projectForm');
+  form.hidden = false;
+  try { form.scrollIntoView({ behavior: 'smooth', block: 'center' }); } catch (e) { /* older browsers */ }
+
+  if (id) {
+    const p = content.projects.find(x => x.id === id);
+    document.getElementById('projectFormTitle').textContent = 'Edit project';
+    document.getElementById('projectId').value = p.id;
+    document.getElementById('projectTitle').value = p.title;
+    document.getElementById('projectDesc').value = p.desc;
+    document.getElementById('projectTags').value = (p.tags || []).join(', ');
+    document.getElementById('projectLink').value = p.link || '';
+    setPreview(document.getElementById('projectImagePreview'), p.image, 'No image');
+  } else {
+    document.getElementById('projectFormTitle').textContent = 'Add project';
+    document.getElementById('projectId').value = '';
+    document.getElementById('projectTitle').value = '';
+    document.getElementById('projectDesc').value = '';
+    document.getElementById('projectTags').value = '';
+    document.getElementById('projectLink').value = '';
+    setPreview(document.getElementById('projectImagePreview'), null, 'No image');
+  }
+}
+
+document.getElementById('projectImageInput').addEventListener('change', (e) => {
+  const file = e.target.files[0];
+  if (!file) return;
+  fileToDataURL(file, (dataUrl) => {
+    pendingProjectImage = dataUrl;
+    setPreview(document.getElementById('projectImagePreview'), dataUrl, 'No image');
+  });
+});
+document.getElementById('projectImageRemove').addEventListener('click', () => {
+  pendingProjectImage = null;
+  setPreview(document.getElementById('projectImagePreview'), null, 'No image');
+});
+
+document.getElementById('cancelProjectBtn').addEventListener('click', () => {
+  document.getElementById('projectForm').hidden = true;
+});
+
+document.getElementById('saveProjectBtn').addEventListener('click', () => {
+  const title = document.getElementById('projectTitle').value.trim();
+  if (!title) { showToast('Please enter a project title.'); return; }
+
+  const data = {
+    title,
+    desc: document.getElementById('projectDesc').value.trim(),
+    tags: csvToList(document.getElementById('projectTags').value),
+    link: document.getElementById('projectLink').value.trim() || '#'
+  };
+
+  const existingId = document.getElementById('projectId').value;
+  if (existingId) {
+    const p = content.projects.find(x => x.id === existingId);
+    Object.assign(p, data);
+    if (pendingProjectImage !== undefined) p.image = pendingProjectImage;
+  } else {
+    const styles = ['bars', 'line', 'donut'];
+    content.projects.push({
+      id: 'p' + Date.now(),
+      ...data,
+      image: pendingProjectImage || null,
+      thumbStyle: styles[content.projects.length % styles.length]
+    });
+  }
+
+  persist();
+  renderProjectsList();
+  document.getElementById('projectForm').hidden = true;
+  showToast('Project saved — your live site is updated.');
+});
+
+// ---------------------------------------------------------
+// SKILLS
+// ---------------------------------------------------------
+
+function loadSkillsForm() {
+  document.getElementById('skillsDataAnalysis').value = content.skills.dataAnalysis.join(', ');
+  document.getElementById('skillsVisualization').value = content.skills.visualization.join(', ');
+  document.getElementById('skillsDatabase').value = content.skills.database.join(', ');
+  document.getElementById('skillsCore').value = content.skills.core.join(', ');
+}
+
+document.getElementById('saveSkills').addEventListener('click', () => {
+  content.skills.dataAnalysis = csvToList(document.getElementById('skillsDataAnalysis').value);
+  content.skills.visualization = csvToList(document.getElementById('skillsVisualization').value);
+  content.skills.database = csvToList(document.getElementById('skillsDatabase').value);
+  content.skills.core = csvToList(document.getElementById('skillsCore').value);
+  persist();
+  showToast('Skills section saved — your live site is updated.');
+});
+
+// ---------------------------------------------------------
+// EDUCATION
+// ---------------------------------------------------------
+
+function loadEducationForm() {
+  document.getElementById('eduDegreeInput').value = content.education.degree;
+  document.getElementById('eduUniversityInput').value = content.education.university;
+  document.getElementById('eduYearInput').value = content.education.year;
+  document.getElementById('eduNoteInput').value = content.education.note;
+}
+
+document.getElementById('saveEducation').addEventListener('click', () => {
+  content.education.degree = document.getElementById('eduDegreeInput').value.trim();
+  content.education.university = document.getElementById('eduUniversityInput').value.trim();
+  content.education.year = document.getElementById('eduYearInput').value.trim();
+  content.education.note = document.getElementById('eduNoteInput').value.trim();
+  persist();
+  showToast('Education saved — your live site is updated.');
+});
+
+// ---------------------------------------------------------
+// CERTIFICATIONS
+// ---------------------------------------------------------
+
+function renderCertsList() {
+  const list = document.getElementById('certsList');
+  if (!content.certifications || content.certifications.length === 0) {
+    list.innerHTML = '<p class="list-empty">No certificates yet.</p>';
+    return;
+  }
+  list.innerHTML = content.certifications.map(c => `
+    <div class="list-item">
+      <div class="list-item-info">
+        <div class="list-item-title">${escapeHtml(c.title)}</div>
+        <div class="list-item-meta">${escapeHtml(c.issuer || '')}${c.issuer && c.year ? ' · ' : ''}${escapeHtml(c.year || '')}</div>
+      </div>
+      <div class="list-item-actions">
+        <button class="btn btn-ghost btn-sm" data-edit-cert="${c.id}" type="button">Edit</button>
+        <button class="btn btn-outline-danger btn-sm" data-del-cert="${c.id}" type="button">Delete</button>
+      </div>
+    </div>`).join('');
+}
+
+document.getElementById('certsList').addEventListener('click', (e) => {
+  const editBtn = e.target.closest('[data-edit-cert]');
+  const delBtn = e.target.closest('[data-del-cert]');
+  if (editBtn) openCertForm(editBtn.dataset.editCert);
+  if (delBtn) {
+    if (confirm('Delete this certificate?')) {
+      content.certifications = content.certifications.filter(c => c.id !== delBtn.dataset.delCert);
+      persist();
+      renderCertsList();
+      showToast('Certificate deleted — your live site is updated.');
+    }
+  }
+});
+
+document.getElementById('addCertBtn').addEventListener('click', () => openCertForm(null));
+
+function openCertForm(id) {
+  editingCertId = id;
+  const form = document.getElementById('certForm');
+  form.hidden = false;
+  try { form.scrollIntoView({ behavior: 'smooth', block: 'center' }); } catch (e) { /* older browsers */ }
+
+  if (id) {
+    const c = content.certifications.find(x => x.id === id);
+    document.getElementById('certFormTitle').textContent = 'Edit certificate';
+    document.getElementById('certId').value = c.id;
+    document.getElementById('certTitle').value = c.title;
+    document.getElementById('certIssuer').value = c.issuer || '';
+    document.getElementById('certYear').value = c.year || '';
+    document.getElementById('certNote').value = c.note || '';
+  } else {
+    document.getElementById('certFormTitle').textContent = 'Add certificate';
+    document.getElementById('certId').value = '';
+    document.getElementById('certTitle').value = '';
+    document.getElementById('certIssuer').value = '';
+    document.getElementById('certYear').value = '';
+    document.getElementById('certNote').value = '';
+  }
+}
+
+document.getElementById('cancelCertBtn').addEventListener('click', () => {
+  document.getElementById('certForm').hidden = true;
+});
+
+document.getElementById('saveCertBtn').addEventListener('click', () => {
+  const title = document.getElementById('certTitle').value.trim();
+  if (!title) { showToast('Please enter a certificate title.'); return; }
+
+  const data = {
+    title,
+    issuer: document.getElementById('certIssuer').value.trim(),
+    year: document.getElementById('certYear').value.trim(),
+    note: document.getElementById('certNote').value.trim()
+  };
+
+  const existingId = document.getElementById('certId').value;
+  if (existingId) {
+    Object.assign(content.certifications.find(c => c.id === existingId), data);
+  } else {
+    content.certifications.push({ id: 'c' + Date.now(), ...data });
+  }
+
+  persist();
+  renderCertsList();
+  document.getElementById('certForm').hidden = true;
+  showToast('Certificate saved — your live site is updated.');
+});
+
+// ---------------------------------------------------------
+// CONTACT
+// ---------------------------------------------------------
+
+function loadContactForm() {
+  document.getElementById('contactEmailInput').value = content.contact.email;
+  document.getElementById('contactWhatsappInput').value = content.contact.whatsapp;
+  document.getElementById('contactLinkedinInput').value = content.contact.linkedin;
+  document.getElementById('contactGithubInput').value = content.contact.github;
+  document.getElementById('footerRoleInput').value = content.footer.role;
+  document.getElementById('resumeLinkInput').value = content.resume.link || '';
+
+  pendingResumeFile = undefined;
+  document.getElementById('resumeFileChip').textContent = content.resume.fileName
+    ? `Uploaded: ${content.resume.fileName}` : 'No file uploaded';
+}
+
+document.getElementById('resumeFileInput').addEventListener('change', (e) => {
+  const file = e.target.files[0];
+  if (!file) return;
+  fileToDataURL(file, (dataUrl) => {
+    pendingResumeFile = { fileName: file.name, fileData: dataUrl };
+    document.getElementById('resumeFileChip').textContent = `Uploaded: ${file.name}`;
+  });
+});
+document.getElementById('resumeFileRemove').addEventListener('click', () => {
+  pendingResumeFile = null;
+  document.getElementById('resumeFileChip').textContent = 'No file uploaded';
+});
+
+document.getElementById('saveContact').addEventListener('click', () => {
+  content.contact.email = document.getElementById('contactEmailInput').value.trim();
+  content.contact.whatsapp = document.getElementById('contactWhatsappInput').value.trim();
+  content.contact.linkedin = document.getElementById('contactLinkedinInput').value.trim();
+  content.contact.github = document.getElementById('contactGithubInput').value.trim();
+  content.footer.role = document.getElementById('footerRoleInput').value.trim();
+  content.resume.link = document.getElementById('resumeLinkInput').value.trim() || '#';
+
+  if (pendingResumeFile === null) {
+    content.resume.fileName = null;
+    content.resume.fileData = null;
+  } else if (pendingResumeFile) {
+    content.resume.fileName = pendingResumeFile.fileName;
+    content.resume.fileData = pendingResumeFile.fileData;
+  }
+
+  persist();
+  showToast('Contact section saved — your live site is updated.');
+});
+
+// ---------------------------------------------------------
+// APPEARANCE / THEME
+// ---------------------------------------------------------
+
+function renderThemeGrid() {
+  const grid = document.getElementById('themeGrid');
+  const current = Store.getTheme();
+  grid.innerHTML = Object.entries(Store.THEMES).map(([key, t]) => `
+    <div class="theme-card ${key === current ? 'selected' : ''}" data-theme="${key}">
+      <div class="theme-swatches">
+        <span style="background:${t.swatch[0]}"></span>
+        <span style="background:${t.swatch[1]}"></span>
+        <span style="background:${t.swatch[2]}"></span>
+      </div>
+      <div class="theme-card-name">${t.label} ${key === current ? '<span class="theme-check">✓ Active</span>' : ''}</div>
+    </div>`).join('');
+}
+
+document.getElementById('themeGrid').addEventListener('click', (e) => {
+  const card = e.target.closest('.theme-card');
+  if (!card) return;
+  Store.saveTheme(card.dataset.theme);
+  renderThemeGrid();
+  showToast('Theme applied — your live site is updated.');
+});
+
+// ---------------------------------------------------------
+// PUBLISH
+// Bakes the current content + theme (currently only in this
+// browser's local storage) into a real, finished index.html
+// that works for every visitor, on any device, with no
+// local storage dependency at all. This is the actual
+// "publish" step for a static site with no backend.
+//
+// Implementation note: this fetches the raw index.html text
+// and parses it into an in-memory document with DOMParser,
+// then runs the exact same rendering code the live site uses
+// (shared/render.js) against that document, entirely
+// synchronously. Deliberately NOT using a hidden iframe here:
+// framing a page (even same-origin) can be blocked by browser
+// security rules in ways that are inconsistent across setups,
+// while fetching a same-origin file's text is a much less
+// restricted operation and has no loading/timing races at all.
+// ---------------------------------------------------------
+
+document.getElementById('publishBtn').addEventListener('click', async () => {
+  const statusEl = document.getElementById('publishStatus');
+  statusEl.textContent = 'Generating your publish-ready file…';
+  statusEl.className = 'publish-status';
+
+  function finish(ok, message) {
+    statusEl.textContent = message;
+    statusEl.className = 'publish-status ' + (ok ? 'success' : 'error');
+  }
+
+  if (window.location.protocol === 'file:') {
+    finish(false, "This can't run while the Admin Panel is opened directly as a file (your address bar starts with file://). Browsers block pages opened this way from reading their neighboring files. Fix: run a local server instead (e.g. type 'python -m http.server' in the project folder, then open http://localhost:8000/admin/), or upload everything to your real hosting and publish from there.");
+    return;
+  }
+
+  let response;
+  try {
+    response = await fetch('../index.html', { cache: 'no-store' });
+  } catch (err) {
+    finish(false, "Couldn't reach index.html (" + err.message + "). Make sure index.html sits in the folder right above this admin folder, and that you're viewing this through a web server, not a double-clicked file.");
+    return;
+  }
+
+  if (!response.ok) {
+    finish(false, "Couldn't find index.html one folder up from here (server responded " + response.status + "). Double-check your folder structure: this admin folder should sit right inside the same folder as index.html.");
+    return;
+  }
+
+  let html;
+  try {
+    html = await response.text();
+  } catch (err) {
+    finish(false, "Couldn't read index.html's contents (" + err.message + "). Please try again.");
+    return;
+  }
+
+  try {
+    const parser = new DOMParser();
+    const pdoc = parser.parseFromString(html, 'text/html');
+
+    if (!pdoc.getElementById('heroTitle')) {
+      throw new Error("the fetched page didn't look like your portfolio site (couldn't find expected content) — its structure may not match what this Admin Panel expects");
+    }
+
+    const content = Store.getContent();
+    const themeKey = Store.getTheme();
+    const theme = Store.THEMES[themeKey] || Store.THEMES[Store.DEFAULT_THEME];
+
+    SiteRenderer.renderContent(content, pdoc);
+    SiteRenderer.applyThemeTo(pdoc, theme.vars);
+
+    // Mark this copy as a finished, static export so it can never be
+    // overwritten by an empty local storage on someone else's browser.
+    pdoc.body.setAttribute('data-static', '1');
+
+    const finalHtml = '<!DOCTYPE html>\n' + pdoc.documentElement.outerHTML;
+    const blob = new Blob([finalHtml], { type: 'text/html' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = 'index.html';
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    URL.revokeObjectURL(url);
+
+    finish(true, 'Done — check your downloads for index.html, then follow the steps below.');
+  } catch (err) {
+    console.error('Publish failed:', err);
+    finish(false, "Couldn't generate the file (" + err.message + "). Please try again, and if it persists, let me know the exact web address in your browser's address bar when this happens.");
+  }
+});
+
+// ---------------------------------------------------------
+// ACCOUNT & SECURITY
+// ---------------------------------------------------------
+
+document.getElementById('accountForm').addEventListener('submit', (e) => {
+  e.preventDefault();
+  const msg = document.getElementById('accountMsg');
+  const auth = Store.getAuth();
+  const current = document.getElementById('currentPassword').value;
+  const newUser = document.getElementById('newUsername').value.trim();
+  const newPass = document.getElementById('newPassword').value;
+  const confirmPass = document.getElementById('confirmPassword').value;
+
+  function fail(text) {
+    msg.textContent = text; msg.className = 'form-msg error'; msg.hidden = false;
+  }
+
+  if (current !== auth.password) return fail('Current password is incorrect.');
+  if (!newUser || !newPass) return fail('Please fill in all fields.');
+  if (newPass !== confirmPass) return fail('New passwords do not match.');
+  if (newPass.length < 6) return fail('New password should be at least 6 characters.');
+
+  Store.saveAuth({ username: newUser, password: newPass });
+  msg.textContent = 'Login details updated. Use these next time you log in.';
+  msg.className = 'form-msg success';
+  msg.hidden = false;
+  document.getElementById('accountForm').reset();
+  checkDefaultPasswordBanner();
+  showToast('Login details updated.');
+});
+
+// ---------------------------------------------------------
+// BACKUP / RESTORE / RESET
+// ---------------------------------------------------------
+
+document.getElementById('exportBtn').addEventListener('click', () => {
+  const blob = new Blob([JSON.stringify(content, null, 2)], { type: 'application/json' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = 'portfolio-backup.json';
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  URL.revokeObjectURL(url);
+  showToast('Backup downloaded.');
+});
+
+document.getElementById('importInput').addEventListener('change', (e) => {
+  const file = e.target.files[0];
+  if (!file) return;
+  const reader = new FileReader();
+  reader.onload = () => {
+    try {
+      const parsed = JSON.parse(reader.result);
+      Store.saveContent(parsed);
+      initDashboard();
+      showToast('Backup restored — your live site is updated.');
+    } catch (err) {
+      showToast('That file could not be read as a valid backup.');
+    }
+  };
+  reader.readAsText(file);
+  e.target.value = '';
+});
+
+document.getElementById('resetBtn').addEventListener('click', () => {
+  if (confirm('This will erase all your edits and restore the original placeholder content. Continue?')) {
+    Store.resetContent();
+    initDashboard();
+    showToast('Content reset to defaults.');
+  }
+});
+
+// ---------------------------------------------------------
+// SMALL ESCAPE HELPERS (module-local copies, admin panel only)
+// ---------------------------------------------------------
+
+function escapeHtml(str) {
+  return String(str == null ? '' : str).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+}
+function escapeAttr(str) {
+  return escapeHtml(str).replace(/"/g, '&quot;');
+}
+
+// ---------------------------------------------------------
+// BOOT
+// ---------------------------------------------------------
+
+Store.applyTheme(Store.getTheme());
+
+if (storageIsBlocked()) {
+  const w = document.getElementById('storageWarning');
+  w.textContent = "Heads up: this browser is blocking local storage on this page — likely because you opened the file directly (file://) instead of through a web server. Logging in and saving won't work here. Try running a local server (e.g. 'python -m http.server' in the project folder) or upload the files to your real hosting and use it there.";
+  w.hidden = false;
+}
+
+if (isLoggedIn()) { showDashboard(); } else { showLogin(); }
