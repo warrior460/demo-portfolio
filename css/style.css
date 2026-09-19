@@ -337,6 +337,7 @@ h1,h2,h3{
   color: var(--text-faint);
 }
 .dash-frame-body{ padding: 14px; position: relative; }
+.dash-media-link{ display: block; cursor: pointer; }
 .dash-media{
   width: 100%;
   max-width: 100%;
