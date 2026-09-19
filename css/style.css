@@ -289,11 +289,12 @@ h1,h2,h3{
   padding-top: var(--nav-h);
   position: relative;
 }
+.hero .container{ max-width: 1360px; }
 .hero-inner{
   display: grid;
-  grid-template-columns: 1fr 1fr;
+  grid-template-columns: 0.85fr 1.25fr;
   align-items: center;
-  gap: 64px;
+  gap: 56px;
 }
 .hero-title{
   font-size: clamp(2.4rem, 5vw, 3.6rem);
@@ -335,7 +336,14 @@ h1,h2,h3{
   font-size: .72rem;
   color: var(--text-faint);
 }
-.dash-frame-body{ padding: 22px; position: relative; }
+.dash-frame-body{ padding: 14px; position: relative; }
+.dash-media{
+  width: 100%;
+  height: auto;
+  display: block;
+  border-radius: 10px;
+  background: var(--bg-alt);
+}
 .dash-svg .panel{ fill: var(--surface-2); }
 .dash-svg .dash-kpi rect:first-child{ fill: var(--surface-2); }
 .dash-svg .mut{ fill: var(--text-faint); opacity:.5; }
