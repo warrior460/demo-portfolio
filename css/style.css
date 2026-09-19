@@ -309,7 +309,7 @@ h1,h2,h3{
 }
 .hero-actions{ display: flex; gap: 16px; flex-wrap: wrap; }
 
-.hero-visual{ position: relative; }
+.hero-visual{ position: relative; min-width: 0; }
 .dash-frame{
   border-radius: var(--radius-lg);
   border: 1px solid var(--border-strong);
@@ -339,6 +339,7 @@ h1,h2,h3{
 .dash-frame-body{ padding: 14px; position: relative; }
 .dash-media{
   width: 100%;
+  max-width: 100%;
   height: auto;
   display: block;
   border-radius: 10px;
